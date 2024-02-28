@@ -1,5 +1,12 @@
 use termui::*;
 
+
+#[derive(Clone, Debug)]
+pub struct PlayerData {
+    name: String,
+    hash: u128,
+}
+
 fn main() {
     println!("Tak teď se uvidí");
 
@@ -14,4 +21,14 @@ fn main() {
     let result = Confirm::yesno(None);
     println!("You chose: {}", result.to_string());
 
+    println!("Tell me a story!");
+    let story = long_input(true);
+    println!("I remember it all: {story}");
+
+    print!("Gimme a number: ");
+    match try_number() {
+        Some(num) => println!("Thanks, you can have it back: {num}"),
+        None => println!("Nevermind"),
+    }
+    
 }
