@@ -1,0 +1,10 @@
+[package]
+name = "server"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+ngrok = { version="0.13", features=["axum"] }
+tokio = { version = "1.26", features = ["full"] }
+axum = "0.6"
+anyhow = "1.0"

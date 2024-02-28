@@ -134,7 +134,7 @@ pub fn try_input() -> Option<String> {
 pub fn long_input(help: bool) -> String {
     let _ = stdout().flush();
     if help {
-        println!("Submit: ctrl + Z (Windows) or ctrl  D (linux)")
+        println!("Submit: ctrl + Z (Windows) or ctrl + D (linux)")
     }
     let mut result = String::new();
     while let Err(err) = stdin().read_to_string(&mut result) {
