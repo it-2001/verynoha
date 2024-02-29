@@ -1,34 +1,21 @@
 use termui::*;
+use std::io::{self, Write};
+use std::sync::{Arc, Mutex};
+use tokio::net::{TcpListener, TcpSocket, TcpStream};
+use tokio::io::{AsyncReadExt, AsyncWriteExt};
+use std::net::{IpAddr, Ipv4Addr, SocketAddr};
+use tokio::task;
+
+mod login;
 
 
-#[derive(Clone, Debug)]
-pub struct PlayerData {
-    name: String,
-    hash: u128,
-}
-
-fn main() {
-    println!("Tak teď se uvidí");
-
-    let default = Confirm::default();
-    let result = Confirm::prompt(&default);
-    println!("You chose: {}", result.as_str());
-    println!("Is it ok? {}", result.is_ok());
-
-    let result = Confirm::yesno(Some(true));
-    println!("You chose: {}", result.to_string());
-
-    let result = Confirm::yesno(None);
-    println!("You chose: {}", result.to_string());
-
-    println!("Tell me a story!");
-    let story = long_input(true);
-    println!("I remember it all: {story}");
-
-    print!("Gimme a number: ");
-    match try_number() {
-        Some(num) => println!("Thanks, you can have it back: {num}"),
-        None => println!("Nevermind"),
-    }
+#[tokio::main]
+async fn main() {
+    let connection = loop {
+        match login::login_to_server().await {
+            Ok(connection) => break connection,
+            Err(e) => println!("Error: {e}"),
+        }
+    };
     
 }

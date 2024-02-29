@@ -1,44 +1,35 @@
-use std::net::SocketAddr;
-
-use axum::{
-    extract::ConnectInfo,
-    routing::get,
-    Router,
-};
-use ngrok::prelude::*;
-
+/// rust tcp multi-threaded server
+use std::sync::{Arc, Mutex};
+use tokio::io::{AsyncReadExt, AsyncWriteExt};
+use tokio::task;
+use tokio::net::*;
 #[tokio::main]
-async fn main() -> anyhow::Result<()> {
-    // build our application with a single route
-    let app = Router::new().route(
-        "/",
-        get(
-            |ConnectInfo(remote_addr): ConnectInfo<SocketAddr>| async move {
-                format!("Hello, {remote_addr:?}!\r\n")
-            },
-        ),
-    );
-
-    let tun = ngrok::Session::builder()
-        // Read the token from the NGROK_AUTHTOKEN environment variable
-        .authtoken_from_env()
-        // Connect the ngrok session
-        .connect()
-        .await?
-        // Start a tunnel with an HTTP edge
-        .http_endpoint()
-        .listen()
-        .await?;
-
-    println!("Tunnel started on URL: {:?}", tun.url());
-
-    // Instead of binding a local port like so:
-    // axum::Server::bind(&"0.0.0.0:8000".parse().unwrap())
-    // Run it with an ngrok tunnel instead!
-    axum::Server::builder(tun)
-        .serve(app.into_make_service_with_connect_info::<SocketAddr>())
-        .await
-        .unwrap();
-
-    Ok(())
+async fn main() {
+    let listener = TcpListener::bind("127.0.0.1:3000").await.unwrap();
+    let shared_data = Arc::new(Mutex::new(0));
+    loop {
+        let (mut socket, _) = listener.accept().await.unwrap();
+        let shared_data = Arc::clone(&shared_data);
+        tokio::spawn(async move {
+            let mut buffer = [0; 1024];
+            loop {
+                let n = match socket.read(&mut buffer).await {
+                    Ok(n) if n == 0 => return,
+                    Ok(n) => n,
+                    Err(e) => {
+                        eprintln!("failed to read from socket; err = {e}");
+                        return;
+                    }
+                };
+                let shared_data = Arc::clone(&shared_data);
+                task::spawn_blocking(move || {
+                    let mut data = shared_data.lock().unwrap();
+                    *data += 1;
+                    println!("Data: {data}");
+                }).await.unwrap();
+                socket.write_all(b"OK").await.unwrap();
+            }
+        });
+    }
 }
+

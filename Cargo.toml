@@ -8,3 +8,4 @@ edition = "2021"
 termui = { path = "termui" }
 serde = { version = "*", features = ["derive"]}
 serde_json = "*"
+tokio = { version = "1", features = ["full"] }
