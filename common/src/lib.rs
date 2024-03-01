@@ -81,6 +81,13 @@ pub mod login {
             }
         }
     }
+
+    pub fn hash_password(password: &str) -> Vec<u8> {
+        use sha2::{Sha256, Digest};
+        let mut hasher = Sha256::new();
+        hasher.update(password);
+        hasher.finalize().to_vec()
+    }
 }
 
 
@@ -89,8 +96,8 @@ pub mod connection_protocol {
     pub const LOGIN : &'static [Chunks] = &[
         // username
         Chunks::String,
-        // password
-        Chunks::String,
+        // password hash
+        Chunks::Binary,
     ];
     /// Holds the connection protocol
     pub struct ConnectionProtocol {
@@ -123,7 +130,7 @@ pub mod connection_protocol {
                     self.msg.extend_from_slice(&value.to_be_bytes()[8 - *size as usize..]);
                     self.current_chunk += 1;
                 },
-                _ => panic!("Invalid chunk type"),
+                _ => panic!("Invalid chunk type, expected {:?}, got int", self.protocol[self.current_chunk]),
             }
             self
         }
@@ -135,7 +142,7 @@ pub mod connection_protocol {
                     self.msg.extend_from_slice(&value.to_be_bytes());
                     self.current_chunk += 1;
                 },
-                _ => panic!("Invalid chunk type"),
+                _ => panic!("Invalid chunk type, expected {:?}, got float", self.protocol[self.current_chunk]),
             }
             self
         }
@@ -147,7 +154,7 @@ pub mod connection_protocol {
                     self.msg.extend_from_slice(&value.to_be_bytes()[8 - *size as usize..]);
                     self.current_chunk += 1;
                 },
-                _ => panic!("Invalid chunk type"),
+                _ => panic!("Invalid chunk type, expected {:?}, got uint", self.protocol[self.current_chunk]),
             }
             self
         }
@@ -162,7 +169,7 @@ pub mod connection_protocol {
                     self.msg.extend_from_slice(value);
                     self.current_chunk += 1;
                 },
-                _ => panic!("Invalid chunk type"),
+                _ => panic!("Invalid chunk type, expected {:?}, got string", self.protocol[self.current_chunk]),
             }
             self
         }
@@ -176,7 +183,7 @@ pub mod connection_protocol {
                     self.msg.extend_from_slice(value);
                     self.current_chunk += 1;
                 },
-                _ => panic!("Invalid chunk type"),
+                _ => panic!("Invalid chunk type, expected {:?}, got binary", self.protocol[self.current_chunk]),
             }
             self
         }
@@ -188,7 +195,7 @@ pub mod connection_protocol {
                     self.msg.push(if value {1} else {0});
                     self.current_chunk += 1;
                 },
-                _ => panic!("Invalid chunk type"),
+                _ => panic!("Invalid chunk type, expected {:?}, got bool", self.protocol[self.current_chunk]),
             }
             self
         }
@@ -276,9 +283,88 @@ pub mod connection_protocol {
                 _ => panic!("Invalid chunk type"),
             }
         }
+
+        /// Read a binary from the message
+        pub fn read_binary(&mut self) -> Vec<u8> {
+            match &self.protocol[self.current_chunk] {
+                Chunks::Binary => {
+                    let size = u64::from_be_bytes(self.msg[self.current_byte..self.current_byte + 8].try_into().unwrap());
+                    self.current_byte += 8;
+                    let value = self.msg[self.current_byte..self.current_byte + size as usize].to_vec();
+                    self.current_byte += size as usize;
+                    self.current_chunk += 1;
+                    value
+                },
+                _ => panic!("Invalid chunk type"),
+            }
+        }
+
+        /// Read a boolean from the message
+        pub fn read_bool(&mut self) -> bool {
+            match &self.protocol[self.current_chunk] {
+                Chunks::Bool => {
+                    let value = self.msg[self.current_byte] != 0;
+                    self.current_byte += 1;
+                    self.current_chunk += 1;
+                    value
+                },
+                _ => panic!("Invalid chunk type"),
+            }
+        }
+
+        /// Finish reading the message
+        pub fn finalize(&self) {
+            if self.current_chunk != self.protocol.len() {
+                panic!("Not all chunks were read");
+            }
+        }
+
+        /// reset the reader
+        pub fn reset(&mut self) {
+            self.current_byte = 0;
+            self.current_chunk = 0;
+        }
+
+        /// skips data in the current chunk
+        pub fn skip(&mut self) {
+            match &self.protocol[self.current_chunk] {
+                Chunks::Int{size} => {
+                    self.current_byte += *size as usize;
+                    self.current_chunk += 1;
+                },
+                Chunks::Float => {
+                    self.current_byte += 8;
+                    self.current_chunk += 1;
+                },
+                Chunks::Uint{size} => {
+                    self.current_byte += *size as usize;
+                    self.current_chunk += 1;
+                },
+                Chunks::String => {
+                    let size = u64::from_be_bytes(self.msg[self.current_byte..self.current_byte + 8].try_into().unwrap());
+                    self.current_byte += 8 + size as usize;
+                    self.current_chunk += 1;
+                },
+                Chunks::Binary => {
+                    let size = u64::from_be_bytes(self.msg[self.current_byte..self.current_byte + 8].try_into().unwrap());
+                    self.current_byte += 8 + size as usize;
+                    self.current_chunk += 1;
+                },
+                Chunks::Bool => {
+                    self.current_byte += 1;
+                    self.current_chunk += 1;
+                },
+            }
+        }
+
+        /// advances to the next chunk without skipping data
+        pub fn advance(&mut self) {
+            self.current_chunk += 1;
+        }
     }
 
     /// Defines each chunk of the connection protocol that can be sent or received
+    #[derive(Debug, PartialEq)]
     pub enum Chunks {
         /// Integer with a defined size
         Int{
@@ -314,7 +400,7 @@ mod tests {
         assert_eq!(login::validate("a".repeat(USERNAME_MAX).as_str(), VALID_PASSWORD), login::LoginValidation::UsernameTooLong);
         assert_eq!(login::validate("username with space", VALID_PASSWORD), login::LoginValidation::UsernameContainsWhitespace);
         assert_eq!(login::validate(VALID_USERNAME, "a"), login::LoginValidation::PasswordTooShort);
-        assert_eq!(login::validate(VALID_USERNAME, "a".repeat(PASSWORD_MAX).as_str()), login::LoginValidation::PasswordTooLong);
+        assert_eq!(login::validate(VALID_USERNAME,"a".repeat(PASSWORD_MAX).as_str()), login::LoginValidation::PasswordTooLong);
         assert_eq!(login::validate(VALID_USERNAME, "password with space"), login::LoginValidation::PasswordContainsWhitespace);
 
     }

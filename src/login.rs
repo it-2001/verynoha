@@ -11,11 +11,13 @@ pub(crate) async fn login_to_server() -> Result<TcpStream, Box<dyn std::error::E
     print!("Password: ");
     // change this to a password input
     let password = termui::input();
-
+    
     let login = common::login::validate(&username, &password);
     if !login.is_valid() {
         return Err(format!("Invalid login: {login}").into());
     }
+    
+    let hash = common::login::hash_password(&password);
 
     let addr = "127.0.0.1:3000";
     let mut stream = match connect(Some(addr)).await {
@@ -43,7 +45,7 @@ pub(crate) async fn login_to_server() -> Result<TcpStream, Box<dyn std::error::E
     let buffer =
         common::connection_protocol::ConnectionWriter::new(common::connection_protocol::LOGIN)
             .write_string(&username)
-            .write_string(&password)
+            .write_binary(&hash)
             .finalize();
     
     stream.write_all(&buffer).await?;

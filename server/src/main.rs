@@ -33,10 +33,10 @@ async fn main() {
                     println!("Data: {data}");
                     let mut reader = common::connection_protocol::ConnectionReader::new(LOGIN, &buffer[0..n]);
                     let username = reader.read_string();
-                    let password = reader.read_string();
-                    let login = common::login::validate(&username, &password);
+                    let password = reader.read_binary();
+                    let login = common::login::validate(&username, "fool_the_machine");
                     if login.is_valid() {
-                        println!("Login successful: {username}\nPassword: {password}");
+                        println!("Login successful: {username}\nPassword: SHA2{:?}", password);
                     } else {
                         println!("Login failed: {username}");
                     }
