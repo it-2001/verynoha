@@ -1,4 +1,4 @@
-workspace = { members = [ "server","termui"] }
+workspace = { members = [ "common", "server","termui"] }
 [package]
 name = "verynoha"
 version = "0.1.0"
@@ -9,3 +9,4 @@ termui = { path = "termui" }
 serde = { version = "*", features = ["derive"]}
 serde_json = "*"
 tokio = { version = "1", features = ["full"] }
+common = { path = "common" }
