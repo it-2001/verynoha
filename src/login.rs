@@ -1,26 +1,28 @@
-use std::net::{IpAddr, Ipv4Addr, SocketAddr};
-use std::sync::{Arc, Mutex};
-use tokio::io::{AsyncReadExt, AsyncWriteExt};
-use tokio::net::{TcpListener, TcpSocket, TcpStream};
-use tokio::task;
+use std::net::SocketAddr;
+use termui::wait_clear;
+use tokio::io::AsyncWriteExt;
+use tokio::net::{TcpSocket, TcpStream};
 
-pub(crate) async fn login_to_server() -> Result<TcpStream, Box<dyn std::error::Error>> {
-    println!("-- Enter login details --");
-    print!("Username: ");
-    let username = termui::input();
-    print!("Password: ");
-    // change this to a password input
-    let password = termui::input();
-    
-    let login = common::login::validate(&username, &password);
-    if !login.is_valid() {
-        return Err(format!("Invalid login: {login}").into());
+fn ask_for_login() -> Option<(String, String)> {
+    loop {
+        print!("Username: ");
+        let username = termui::input();
+        print!("Password: ");
+        let password = termui::input();
+        if username.is_empty() || password.is_empty() {
+            return None;
+        }
+        let login = common::login::validate(&username, &password);
+        if login.is_valid() {
+            return Some((username, password));
+        }
+        println!("Invalid login: {login}");
     }
-    
-    let hash = common::login::hash_password(&password);
+}
 
-    let addr = "127.0.0.1:3000";
-    let mut stream = match connect(Some(addr)).await {
+async fn make_conncetion() -> Result<TcpStream, Box<dyn std::error::Error>> {
+    let addr = common::DEFAULT_SERVER_IP;
+    let stream = match connect(Some(addr)).await {
         Ok(stream) => stream,
         Err(e) => {
             println!("Failed to connect to server: {e}");
@@ -42,22 +44,93 @@ pub(crate) async fn login_to_server() -> Result<TcpStream, Box<dyn std::error::E
             }
         }
     };
-    let buffer =
-        common::connection_protocol::ConnectionWriter::new(common::connection_protocol::LOGIN)
-            .write_string(&username)
-            .write_binary(&hash)
-            .finalize();
-    
-    stream.write_all(&buffer).await?;
+    Ok(stream)
+}
 
-    let mut buffer = [0; 1024];
-    let n = stream.read(&mut buffer).await?;
-    let response = std::str::from_utf8(&buffer[0..n])?;
-    if response == "OK" {
-        Ok(stream)
-    } else {
-        Err(format!("Server response: {response}").into())
-    }
+pub async fn login_to_server() -> Result<TcpStream, Box<dyn std::error::Error>> {
+    let (username, password) = match ask_for_login() {
+        Some((username, password)) => (username, password),
+        None => return Err("Login cancelled".into()),
+    };
+    
+    let hash = common::login::hash_password(&password);
+    
+    let mut stream = make_conncetion().await?;
+
+    let buffer = common::connection_protocol::Message::Login { username: username.clone(), password: hash }.to_bytes();
+    println!("sending buffer: {:?}", buffer.len());
+    stream.write(&buffer).await?;
+
+    let response = match common::connection_protocol::Message::read_stream(&mut stream).await {
+        Ok(response) => response,
+        Err(e) => {
+            println!("Failed to read response: {e:?}");
+            return Err("Failed to read response".into());
+        }
+    };
+
+    let res = match response {
+        common::connection_protocol::Message::Ok(_, _) => {
+            println!("Login successful");
+            Ok(stream)
+        }
+        common::connection_protocol::Message::Error(_, Some(message)) => {
+            println!("Login failed: {}", String::from_utf8_lossy(&message));
+            Err("Login failed".into())
+        }
+        common::connection_protocol::Message::Error(_, None) => {
+            println!("Login failed");
+            Err("Login failed".into())
+        }
+        _ => {
+            Err("Unexpected response".into())
+        }
+    };
+    wait_clear();
+    res
+}
+
+pub async fn register() -> Result<TcpStream, Box<dyn std::error::Error>> {
+    let (username, password) = match ask_for_login() {
+        Some((username, password)) => (username, password),
+        None => return Err("Registration cancelled".into()),
+    };
+    
+    let hash = common::login::hash_password(&password);
+    
+    let mut stream = make_conncetion().await?;
+
+    let buffer = common::connection_protocol::Message::Register { username: username.clone(), password: hash }.to_bytes();
+    
+    stream.write(&buffer).await?;
+
+    let response = match common::connection_protocol::Message::read_stream(&mut stream).await {
+        Ok(response) => response,
+        Err(e) => {
+            println!("Failed to read response: {e:?}");
+            return Err("Failed to read response".into());
+        }
+    };
+
+    let res = match response {
+        common::connection_protocol::Message::Ok(_, _) => {
+            println!("Registration successful");
+            Ok(stream)
+        }
+        common::connection_protocol::Message::Error(_, Some(message)) => {
+            println!("Registration failed: {}", String::from_utf8_lossy(&message));
+            Err("Registration failed".into())
+        }
+        common::connection_protocol::Message::Error(_, None) => {
+            println!("Registration failed");
+            Err("Registration failed".into())
+        }
+        _ => {
+            Err("Unexpected response".into())
+        }
+    };
+    wait_clear();
+    res
 }
 
 async fn connect(addr: Option<&str>) -> Result<TcpStream, Box<dyn std::error::Error>> {

@@ -1,5 +1,9 @@
 use std::io::{stdin, stdout, Read, Write};
 
+pub fn clear_screen() {
+    print!("\x1B[2J\x1B[1;1H");
+}
+
 #[derive(Clone, Debug, PartialEq)]
 pub enum Confirm {
     Yes,
@@ -111,6 +115,18 @@ pub fn match_word(input: &str, word: &str, index: Option<usize>) -> bool {
         .all(|(a, b)| a.to_lowercase().eq(b.to_lowercase()))
 }
 
+pub fn wait() {
+    let _ = stdout().flush();
+    println!("Press enter to continue..");
+    let mut buffer = [0; 1];
+    let _ = stdin().read(&mut buffer);
+}
+
+pub fn wait_clear() {
+    wait();
+    clear_screen();
+}
+
 pub fn input() -> String {
     let _ = stdout().flush();
     let mut result = String::new();
@@ -214,6 +230,84 @@ pub fn try_number() -> Option<f64> {
     match num.parse::<f64>() {
         Ok(num) => Some(num),
         Err(_) => None,
+    }
+}
+
+pub fn options(options: &[&str]) -> usize {
+    let _ = stdout().flush();
+    for (i, option) in options.iter().enumerate() {
+        println!("{}) {}", i+1, option);
+    }
+    'main: loop {
+        let choice = input();
+        for (i, option) in options.iter().enumerate() {
+            if match_word(&choice, option, None) {
+                // check for collision with other options
+                let mut colide = false;
+                for j in i + 1..options.len() {
+                    if match_word(&choice, options[j], None) {
+                        colide = true;
+                    }
+                }
+                if colide {
+                    println!("Input is ambiguous, please choose a different option");
+                    continue 'main;
+                }
+                return i;
+            }
+        }
+        if let Ok(num) = choice.parse::<usize>() {
+            let num = num - 1;
+            if num < options.len() {
+                return num;
+            }
+        }
+        println!("Please choose an option from the list");
+    }
+}
+
+pub fn try_options(options: &[&str]) -> Option<usize> {
+    let _ = stdout().flush();
+    for (i, option) in options.iter().enumerate() {
+        println!("{}) {}", i+1, option);
+    }
+    println!("0) Cancel");
+    loop {
+        let choice = input();
+        if match_word(&choice, "cancel", None) {
+            return None;
+        }
+        if choice.is_empty() {
+            return None;
+        }
+        if let Ok(num) = choice.parse::<usize>() {
+            if num == 0 {
+                return None;
+            }
+        }
+        for (i, option) in options.iter().enumerate() {
+            if match_word(&choice, option, Some(i)) {
+                // check for collision with other options
+                let mut colide = false;
+                for j in i + 1..options.len() {
+                    if match_word(&choice, options[j], Some(j)) {
+                        colide = true;
+                    }
+                }
+                if colide {
+                    println!("Input is ambiguous, please choose a different option");
+                    continue;
+                }
+                return Some(i);
+            }
+        }
+        if let Ok(num) = choice.parse::<usize>() {
+            let num = num - 1;
+            if num < options.len() {
+                return Some(num);
+            }
+        }
+        println!("Please choose an option from the list");
     }
 }
 
